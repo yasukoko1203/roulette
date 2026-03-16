@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ルーレット</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; background: #0f0f23; font-family: 'Segoe UI', sans-serif; color: #fff;
+  }
+  h1 { margin-bottom: 20px; font-size: 32px; letter-spacing: 3px; }
+  .roulette-container { position: relative; width: 400px; height: 400px; margin-bottom: 24px; }
+  canvas { border-radius: 50%; box-shadow: 0 0 40px rgba(255,200,0,.15); }
+  .pointer {
+    position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 14px solid transparent; border-right: 14px solid transparent;
+    border-top: 32px solid #ff2255;
+    filter: drop-shadow(0 2px 6px rgba(255,0,0,.5));
+    z-index: 10;
+  }
+  .labels { display: flex; gap: 40px; margin-bottom: 16px; font-size: 18px; font-weight: bold; }
+  .label-win { color: #4ecdc4; }
+  .label-lose { color: #ff6b6b; }
+  #result { margin-top: 8px; font-size: 28px; min-height: 36px; font-weight: bold; }
+  button {
+    margin-top: 12px; padding: 12px 44px; font-size: 20px; border: none; border-radius: 50px;
+    background: linear-gradient(135deg, #e94560, #c73650);
+    color: #fff; cursor: pointer; letter-spacing: 2px; font-weight: bold;
+    box-shadow: 0 4px 20px rgba(233,69,96,.4);
+  }
+  button:hover { transform: scale(1.05); }
+  button:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  .confetti { position: fixed; pointer-events: none; z-index: 100; }
+</style>
+</head>
+<body>
+<h1>ROULETTE</h1>
+<div class="labels">
+  <span class="label-win">&#9679; 谷口 (99%)</span>
+  <span class="label-lose">&#9679; その他誰か (1%)</span>
+</div>
+<div class="roulette-container">
+  <div class="pointer"></div>
+  <canvas id="wheel" width="400" height="400"></canvas>
+</div>
+<div id="result"></div>
+<button id="spinBtn" onclick="spin()">SPIN!</button>
+
+<script>
+const canvas = document.getElementById('wheel');
+const ctx = canvas.getContext('2d');
+const R = 195;
+const WIN = Math.PI * 2 * 0.99;
+const segments = [
+  { label: '谷口', angle: WIN, color: '#1a936f' },
+  { label: 'その他', angle: Math.PI * 2 * 0.01, color: '#c1292e' },
+];
+
+let rot = 0, spinning = false, ac = null;
+
+function beep(vol, freq) {
+  if (!ac) ac = new AudioContext();
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.connect(g); g.connect(ac.destination);
+  o.frequency.value = freq; o.type = 'triangle';
+  g.gain.setValueAtTime(vol, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + .04);
+  o.start(); o.stop(ac.currentTime + .04);
+}
+
+function draw(r) {
+  ctx.clearRect(0, 0, 400, 400);
+  ctx.save(); ctx.translate(200, 200); ctx.rotate(r);
+  let a = 0;
+  for (const s of segments) {
+    const end = a + s.angle;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, a, end);
+    ctx.closePath(); ctx.fillStyle = s.color; ctx.fill();
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.stroke();
+    const mid = a + s.angle / 2, tr = R * .6;
+    ctx.save(); ctx.translate(Math.cos(mid) * tr, Math.sin(mid) * tr);
+    ctx.rotate(mid + Math.PI / 2); ctx.fillStyle = '#fff';
+    ctx.font = s.angle < .2 ? '10px sans-serif' : 'bold 22px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
+    ctx.fillText(s.label, 0, 0); ctx.restore();
+    a = end;
+  }
+  ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2);
+  ctx.fillStyle = '#222'; ctx.fill(); ctx.strokeStyle = '#666'; ctx.lineWidth = 3; ctx.stroke();
+  // 境界線
+  ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(R, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(Math.cos(WIN) * 20, Math.sin(WIN) * 20);
+  ctx.lineTo(Math.cos(WIN) * R, Math.sin(WIN) * R); ctx.stroke();
+  ctx.restore();
+}
+
+function spin() {
+  if (spinning) return;
+  spinning = true;
+  document.getElementById('spinBtn').disabled = true;
+  document.getElementById('result').textContent = '';
+
+  // ギリギリ谷口側に止まる
+  const target = WIN - .004 - Math.random() * .015;
+  const dest = rot - (5 + Math.floor(Math.random() * 3)) * Math.PI * 2
+    + (-Math.PI / 2 - target - rot);
+  const start = rot, delta = dest - start;
+  const dur = 3200 + Math.random() * 800;
+  const t0 = performance.now();
+  let lastTick = start;
+
+  (function frame(now) {
+    const t = Math.min((now - t0) / dur, 1);
+    const e = 1 - Math.pow(1 - t, 4);
+    rot = start + delta * e;
+    draw(rot);
+
+    const moved = Math.abs(rot - lastTick);
+    const speed = 1 - t;
+    if (moved > .08 + speed * .3) {
+      beep(.06 + (1 - speed) * .15, 700 + (1 - speed) * 500);
+      lastTick = rot;
+    }
+
+    if (t < 1) requestAnimationFrame(frame);
+    else {
+      setTimeout(() => {
+        spinning = false;
+        document.getElementById('spinBtn').disabled = false;
+        document.getElementById('result').style.color = '#4ecdc4';
+        document.getElementById('result').textContent = '🎉 谷口！!! 🎉';
+        confetti();
+      }, 300);
+    }
+  })(t0);
+}
+
+function confetti() {
+  const cols = ['#ff6b6b','#4ecdc4','#ffe66d','#a8e6cf','#ffd700','#ff2255'];
+  for (let i = 0; i < 60; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti';
+    el.style.cssText = `left:${Math.random()*100}vw;top:-10px;width:${6+Math.random()*6}px;height:${6+Math.random()*6}px;background:${cols[Math.floor(Math.random()*cols.length)]};border-radius:${Math.random()>.5?'50%':'2px'}`;
+    document.body.appendChild(el);
+    const d = 1200 + Math.random() * 1500, dl = Math.random() * 400;
+    el.animate([
+      { transform: 'translate(0,0) rotate(0)', opacity: 1 },
+      { transform: `translate(${(Math.random()-.5)*200}px,${innerHeight+40}px) rotate(${Math.random()*720}deg)`, opacity: 0 }
+    ], { duration: d, delay: dl, easing: 'ease-out', fill: 'forwards' });
+    setTimeout(() => el.remove(), d + dl);
+  }
+}
+
+draw(rot);
+</script>
+</body>
+</html>
